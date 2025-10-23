@@ -3,22 +3,31 @@ package main
 import (
 	"bufio"
 	"fmt"
+	"math/rand"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/KrisQ/verbose-bassoon/internal/pokeapi"
+	"github.com/KrisQ/verbose-bassoon/internal/pokecache"
 )
 
 type Config struct {
 	pokeapiClient pokeapi.Client
 	Next          *string
 	Previous      *string
+	cache         pokecache.Cache
+	pokedex       dex
 }
 
 type cliCommand struct {
 	name        string
 	description string
-	callback    func(*Config) error
+	callback    func(*Config, ...string) error
+}
+
+type dex struct {
+	caught map[string]pokeapi.Pokemon
 }
 
 var commands map[string]cliCommand
@@ -45,6 +54,16 @@ func init() {
 			description: "Display previous 20 location areas",
 			callback:    commandMapb,
 		},
+		"explore": {
+			name:        "explore",
+			description: "Explore area and find pokemons",
+			callback:    commandExplore,
+		},
+		"catch": {
+			name:        "catch",
+			description: "Attempt to catch a pokemon - difficulty based on pokemon's experience",
+			callback:    commandCatch,
+		},
 	}
 }
 
@@ -52,13 +71,13 @@ func cleanInput(text string) []string {
 	return strings.Fields(strings.ToLower(text))
 }
 
-func commandExit(config *Config) error {
+func commandExit(config *Config, _ ...string) error {
 	fmt.Printf("Closing the Pokedex... Goodbye!")
 	os.Exit(0)
 	return nil
 }
 
-func commandHelp(config *Config) error {
+func commandHelp(config *Config, _ ...string) error {
 	fmt.Println("Welcome to the Pokedex!")
 	fmt.Println("Usage:")
 	fmt.Println()
@@ -70,8 +89,8 @@ func commandHelp(config *Config) error {
 	return nil
 }
 
-func commandMap(config *Config) error {
-	locationAreas, err := config.pokeapiClient.GetLocations(config.Next)
+func commandMap(config *Config, _ ...string) error {
+	locationAreas, err := config.pokeapiClient.GetLocations(&config.cache, config.Next)
 	if err != nil {
 		return err
 	}
@@ -83,12 +102,12 @@ func commandMap(config *Config) error {
 	return nil
 }
 
-func commandMapb(config *Config) error {
+func commandMapb(config *Config, _ ...string) error {
 	if config.Previous == nil {
 		fmt.Println("you're on the first page")
 		return nil
 	}
-	locationAreas, err := config.pokeapiClient.GetLocations(config.Previous)
+	locationAreas, err := config.pokeapiClient.GetLocations(&config.cache, config.Previous)
 	if err != nil {
 		return err
 	}
@@ -97,11 +116,50 @@ func commandMapb(config *Config) error {
 	}
 	config.Previous = locationAreas.Previous
 	config.Next = locationAreas.Next
+	return nil
+}
+
+func commandExplore(config *Config, args ...string) error {
+	if args[0] == "" {
+		fmt.Println("you need to provide a location")
+		return nil
+	}
+	locationPokemons, err := config.pokeapiClient.GetLocationPokemons(&config.cache, args[0])
+	if err != nil {
+		return err
+	}
+	for _, encounter := range locationPokemons.PokemonEncounters {
+		fmt.Println(encounter.Pokemon.Name)
+	}
+	return nil
+}
+
+func commandCatch(config *Config, args ...string) error {
+	if args[0] == "" {
+		fmt.Println("you need to provide a location")
+		return nil
+	}
+	fmt.Printf("Throwing a Pokeball at %s...\n", args[0])
+	pokemon, err := config.pokeapiClient.GetPokemon(&config.cache, args[0])
+	if err != nil {
+		return err
+	}
+	base := 1000
+	pokemonExp := pokemon.BaseExperience
+	random := rand.Intn(1000)
+	if base-pokemonExp-random > 500 {
+		fmt.Printf("%s was caught!\n", pokemon.Name)
+		config.pokedex.caught[pokemon.Name] = pokemon
+	} else {
+		fmt.Printf("%s escaped!\n", pokemon.Name)
+	}
 	return nil
 }
 
 func startRepl(config *Config) {
 	scanner := bufio.NewScanner(os.Stdin)
+	config.cache = *pokecache.NewCache(5 * time.Second)
+	config.pokedex.caught = make(map[string]pokeapi.Pokemon) // Initialize here
 	for {
 		fmt.Print("Pokedex > ")
 		scanner.Scan()
@@ -115,7 +173,11 @@ func startRepl(config *Config) {
 			fmt.Println("Unknown command")
 			continue
 		}
-		err := command.callback(config)
+		args := []string{}
+		if len(words) > 1 {
+			args = words[1:]
+		}
+		err := command.callback(config, args...)
 		if err != nil {
 			fmt.Println(err)
 			continue
