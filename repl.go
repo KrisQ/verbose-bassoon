@@ -64,6 +64,16 @@ func init() {
 			description: "Attempt to catch a pokemon - difficulty based on pokemon's experience",
 			callback:    commandCatch,
 		},
+		"inspect": {
+			name:        "inspect",
+			description: "look up pokemon in pokedex",
+			callback:    commandInspect,
+		},
+		"pokedex": {
+			name:        "pokedex",
+			description: "list caught pokemons",
+			callback:    commandPokedex,
+		},
 	}
 }
 
@@ -136,7 +146,7 @@ func commandExplore(config *Config, args ...string) error {
 
 func commandCatch(config *Config, args ...string) error {
 	if args[0] == "" {
-		fmt.Println("you need to provide a location")
+		fmt.Println("you need to provide a pokemon name")
 		return nil
 	}
 	fmt.Printf("Throwing a Pokeball at %s...\n", args[0])
@@ -152,6 +162,38 @@ func commandCatch(config *Config, args ...string) error {
 		config.pokedex.caught[pokemon.Name] = pokemon
 	} else {
 		fmt.Printf("%s escaped!\n", pokemon.Name)
+	}
+	return nil
+}
+
+func commandInspect(config *Config, args ...string) error {
+	if args[0] == "" {
+		fmt.Println("you need to provide a location")
+		return nil
+	}
+	pokemon, ok := config.pokedex.caught[args[0]]
+	if !ok {
+		fmt.Println("you can only inspect pokemon you've caught")
+		return nil
+	}
+	fmt.Printf("Name: %v\n", pokemon.Name)
+	fmt.Printf("Height: %v\n", pokemon.Height)
+	fmt.Printf("Weight: %v\n", pokemon.Weight)
+	fmt.Println("Stats:")
+	for _, s := range pokemon.Stats {
+		fmt.Printf("\t-%v: %v\n", s.Stat.Name, s.BaseStat)
+	}
+	fmt.Println("Types:")
+	for _, t := range pokemon.Types {
+		fmt.Printf("\t-%v\n", t.Type.Name)
+	}
+	return nil
+}
+
+func commandPokedex(config *Config, args ...string) error {
+	fmt.Println("Your pokedex:")
+	for k := range config.pokedex.caught {
+		fmt.Printf("\t-%v\n", k)
 	}
 	return nil
 }
